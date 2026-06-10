@@ -16,7 +16,7 @@ export function createEnemy(scene, x, z, isBoss = false, modelPath = null) {
     const bossBody = new THREE.Group()
     // cuerpo principal como cilindro con esferas para suavizar
     const bossCore = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.9, 0.9, 1.8, 16),
+      new THREE.CylinderGeometry(0.10, 0.8, 4.9, 56),
       new THREE.MeshStandardMaterial({
         color: 0xff6600,
         emissive: 0xff3300,
@@ -98,10 +98,12 @@ export function createEnemy(scene, x, z, isBoss = false, modelPath = null) {
     // Propiedades del jefe
     enemyGroup.maxHealth = 200
     enemyGroup.health = 200
-    enemyGroup.damage = 0.15
+    enemyGroup.damage = 30
     enemyGroup.speed = 0.05
     enemyGroup.isBoss = true
     enemyGroup.attackRange = 3
+    enemyGroup.attackCooldown = 800
+    enemyGroup.lastAttack = 0
     
   } else {
     // ============================================
@@ -191,10 +193,13 @@ export function createEnemy(scene, x, z, isBoss = false, modelPath = null) {
     // Propiedades del enemigo normal
     enemyGroup.maxHealth = 50
     enemyGroup.health = 50
-    enemyGroup.damage = 0.05
+    enemyGroup.damage = 15
     enemyGroup.speed = 0.03
     enemyGroup.isBoss = false
     enemyGroup.attackRange = 2
+    enemyGroup.attackCooldown = 1000
+    enemyGroup.lastAttack = 0
+
   }
   
   enemyGroup.position.set(x, 0, z)
@@ -351,8 +356,16 @@ export function updateEnemies(enemies, playerPosition, scene, deltaSeconds = 1/6
 
     // Perseguir si está cerca
     if (distance < 25) {
-      enemy.position.add(direction.clone().multiplyScalar(enemy.speed))
-    }
+
+  if (distance > 2) {
+
+    enemy.position.add(
+      direction.clone().multiplyScalar(enemy.speed)
+    )
+
+  }
+
+}
 
     // Avanzar animaciones/mixer
     if (typeof enemy.update === 'function') enemy.update(deltaSeconds)
@@ -544,4 +557,106 @@ export function checkEnemyPlayerCollision(enemies, playerPosition, player) {
       player.health -= enemy.damage
     }
   })
+}
+
+// ─────────────────────────────────────────────
+// DETECCIÓN DE ATAQUES ENEMIGOS
+// ─────────────────────────────────────────────
+ 
+/**
+ * Comprueba si algún enemigo está lo suficientemente cerca para golpear.
+ * Integra daño, knockback, invencibilidad temporal y detección de muerte.
+ *
+ * @param {Array}  enemies       - array de objetos enemigo { mesh, attackRange, damage, attackCooldown, _attackTimer }
+ * @param {THREE.Object3D} playerModel
+ * @param {THREE.Camera} camera   - necesario para el efecto de pantalla roja
+ * @param {object} healthBar      - retorno de createHealthBar()
+ * @param {object} gameOverScreen - retorno de createGameOverScreen()
+ * @param {number} delta
+ *
+ * Estructura esperada de cada enemigo:
+ *   {
+ *     mesh: THREE.Mesh | THREE.Group,
+ *     attackRange: 2.0,     // distancia en unidades para golpear
+ *     damage: 15,           // puntos de vida que quita
+ *     attackCooldown: 1.5,  // segundos entre ataques
+ *     _attackTimer: 0       // inicializar en 0; el sistema lo maneja
+ *   }
+ */
+export function checkEnemyAttacks(enemies, playerModel, camera, healthBar, gameOverScreen, delta) {
+  if (!playerState.alive) return
+ 
+  // Actualizar invencibilidad
+  if (playerState.invincible) {
+    playerState.invincibleTimer -= delta
+    if (playerState.invincibleTimer <= 0) {
+      playerState.invincible = false
+    }
+  }
+ 
+  for (const enemy of enemies) {
+    // Asegurar que el timer exista
+    if (enemy._attackTimer === undefined) enemy._attackTimer = 0
+    enemy._attackTimer -= delta
+ 
+    const dist = playerModel.position.distanceTo(enemy.mesh.position)
+ 
+    if (dist <= (enemy.attackRange ?? 2.0) && enemy._attackTimer <= 0) {
+      enemy._attackTimer = enemy.attackCooldown ?? 1.5
+ 
+      if (!playerState.invincible) {
+        // ── Aplicar daño ──
+        playerState.hp -= enemy.damage ?? 15
+        updateHealthBar(healthBar)
+ 
+        // ── Knockback ──
+        applyKnockback(playerModel, enemy.mesh, 5)
+ 
+        // ── Flash rojo en pantalla ──
+        flashDamageScreen()
+ 
+        // ── Iniciar invencibilidad temporal ──
+        playerState.invincible = true
+        playerState.invincibleTimer = playerState.invincibleDuration
+ 
+        // ── Verificar muerte ──
+        if (playerState.hp <= 0) {
+          playerState.hp = 0
+          playerState.alive = false
+          updateHealthBar(healthBar)
+          triggerGameOver(gameOverScreen, playerModel, camera)
+          return
+        }
+      }
+    }
+  }
+}
+ 
+// ─────────────────────────────────────────────
+// FLASH DE DAÑO (overlay rojo momentáneo)
+// ─────────────────────────────────────────────
+ 
+function flashDamageScreen() {
+  let overlay = document.getElementById('damage-flash')
+  if (!overlay) {
+    overlay = document.createElement('div')
+    overlay.id = 'damage-flash'
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'rgba(200, 0, 0, 0.35)',
+      pointerEvents: 'none',
+      zIndex: '900',
+      opacity: '0',
+      transition: 'opacity 0.08s ease-in',
+    })
+    document.body.appendChild(overlay)
+  }
+ 
+  overlay.style.opacity = '1'
+  clearTimeout(overlay._fadeTimeout)
+  overlay._fadeTimeout = setTimeout(() => {
+    overlay.style.transition = 'opacity 0.5s ease-out'
+    overlay.style.opacity = '0'
+  }, 80)
 }

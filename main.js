@@ -363,8 +363,8 @@ for (let i = 0; i < 40; i++) {
 
   const mountain = new THREE.Mesh(
     new THREE.ConeGeometry(
-      Math.random() * 20 + 10,
-      Math.random() * 50 + 20,
+      Math.random() * 30 + 40,
+      Math.random() * 50 + 40,
       4
     ),
     new THREE.MeshStandardMaterial({
